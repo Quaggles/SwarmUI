@@ -54,6 +54,60 @@ public class ComfyUISelfStartBackend : ComfyUIAPIAbstractBackend
 
     public static bool IsComfyModelFileEmitted = false;
 
+    /// <summary>
+    /// Dictionary of model keys and folder path values to merge into the generated extra paths config
+    /// </summary>
+    public static Dictionary<string, List<string>> ExtraPaths = new();
+    
+    /// <summary>
+    /// Adds new ComfyUI model extra paths
+    /// </summary>
+    /// <param name="key">Model type name, e.g. checkpoints</param>
+    /// <param name="paths">Folder paths</param>
+    public static void AddExtraPaths(string key, IEnumerable<string> paths) => AddOrAppend(ExtraPaths, key, paths);
+
+    /// <summary>
+    /// Used for dictionaries with list value type, if the key already exists the values are appended onto the existing list,
+    /// otherwise a new key is added with a copy of values
+    /// </summary>
+    public static void AddOrAppend<TKey, TValue>(Dictionary<TKey, List<TValue>> dictionary, TKey key, IEnumerable<TValue> values)
+    {
+        if (dictionary.TryGetValue(key, out var dictValueList))
+            dictValueList.AddRange(values);
+        else
+            dictionary.Add(key, values.ToList());
+    }
+
+    /// <summary>
+    /// Builds a ComfyUI extra paths yaml config from a dictionary, keys are model names and the values are lists of folder paths
+    /// </summary>
+    public static string BuildComfyModelYamlFromDictionary(Dictionary<string, List<string>> dictionary)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("swarmui:");
+        foreach (var (key, paths) in dictionary)
+        {
+            // Filter out empty or duplicate paths
+            var filteredPaths = paths.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct();
+            if (!filteredPaths.Any())
+                continue;
+            sb.Append($"    {key}: ");
+            if (filteredPaths.Count() > 1) // Multiple items
+            {
+                sb.Append('|');
+                foreach (var path in filteredPaths) 
+                    sb.Append($"\n        {path}");
+            }
+            else // Single item
+            {
+                sb.Append($"{filteredPaths.First()}");
+            }
+            sb.AppendLine();
+        }
+            
+        return sb.ToString();
+    }
+
     /// <summary>Downloads or updates the named relevant ComfyUI custom node repo.</summary>
     public async Task<bool> EnsureNodeRepo(string url)
     {
@@ -162,51 +216,34 @@ public class ComfyUISelfStartBackend : ComfyUIAPIAbstractBackend
             }
             AddLoadStatus($"Will emit comfy model paths file...");
             string root = Utilities.CombinePathWithAbsolute(Environment.CurrentDirectory, Program.ServerSettings.Paths.ModelRoot);
-            string yaml = $"""
-            swarmui:
-                base_path: {root}
-                checkpoints: {Program.ServerSettings.Paths.SDModelFolder}
-                vae: |
-                    {Program.ServerSettings.Paths.SDVAEFolder}
-                    VAE
-                loras: |
-                    {Program.ServerSettings.Paths.SDLoraFolder}
-                    Lora
-                    LyCORIS
-                upscale_models: |
-                    ESRGAN
-                    RealESRGAN
-                    SwinIR
-                    upscale-models
-                    upscale_models
-                embeddings: |
-                    {Program.ServerSettings.Paths.SDEmbeddingFolder}
-                    embeddings
-                hypernetworks: hypernetworks
-                controlnet: |
-                    {Program.ServerSettings.Paths.SDControlNetsFolder}
-                    ControlNet
-                clip_vision: |
-                    {Program.ServerSettings.Paths.SDClipVisionFolder}
-                    clip_vision
-                clip: |
-                    clip
-                unet: |
-                    unet
-                gligen: |
-                    gligen
-                ipadapter: |
-                    ipadapter
-                yolov8: |
-                    yolov8
-                tensorrt: |
-                    tensorrt
-                clipseg: |
-                    clipseg
-                custom_nodes: |
-                    {Path.GetFullPath(ComfyUIBackendExtension.Folder + "/DLNodes")}
-                    {Path.GetFullPath(ComfyUIBackendExtension.Folder + "/ExtraNodes")}
-            """;
+            
+            // Core SwarmUI Paths
+            Dictionary<string, List<string>> corePaths = new()
+            {
+                { "base_path", [root] },
+                { "checkpoints", [Program.ServerSettings.Paths.SDModelFolder] },
+                { "vae", [Program.ServerSettings.Paths.SDVAEFolder, "VAE"] },
+                { "loras", [Program.ServerSettings.Paths.SDLoraFolder, "Lora", "LyCORIS"] },
+                { "upscale_models", ["ESRGAN", "RealESRGAN", "SwinIR", "upscale-models", "upscale_models"] },
+                { "embeddings", [Program.ServerSettings.Paths.SDEmbeddingFolder, "embeddings"] },
+                { "hypernetworks", [Program.ServerSettings.Paths.SDEmbeddingFolder, "hypernetworks"] },
+                { "controlnet", [Program.ServerSettings.Paths.SDControlNetsFolder, "ControlNet"] },
+                { "clip_vision", [Program.ServerSettings.Paths.SDClipVisionFolder, "clip_vision"] },
+                { "clip", ["clip"] },
+                { "unet", ["unet"] },
+                { "gligen", ["gligen"] },
+                { "ipadapter", ["ipadapter"] },
+                { "yolov8", ["yolov8"] },
+                { "tensorrt", ["tensorrt"] },
+                { "clipseg", ["clipseg"] },
+                { "custom_nodes", [Path.GetFullPath(ComfyUIBackendExtension.Folder + "/DLNodes"), Path.GetFullPath(ComfyUIBackendExtension.Folder + "/ExtraNodes")] },
+            };
+            
+            // Merge the ExtraPaths dictionary with the corePaths
+            foreach (var (key, value) in ExtraPaths) 
+                AddOrAppend(corePaths, key, value);
+            
+            string yaml = BuildComfyModelYamlFromDictionary(corePaths);
             Directory.CreateDirectory(Utilities.CombinePathWithAbsolute(root, Program.ServerSettings.Paths.SDClipVisionFolder));
             Directory.CreateDirectory($"{root}/upscale_models");
             File.WriteAllText($"{Program.DataDir}/comfy-auto-model.yaml", yaml);
