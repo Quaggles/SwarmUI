@@ -57,7 +57,7 @@ public class ComfyUISelfStartBackend : ComfyUIAPIAbstractBackend
     /// <summary>
     /// Dictionary of model keys and folder path values to merge into the generated extra paths config
     /// </summary>
-    public static Dictionary<string, List<string>> ExtraPaths = new();
+    public static ConcurrentDictionary<string, List<string>> ExtraPaths = new();
     
     /// <summary>
     /// Adds new ComfyUI model extra paths
@@ -70,18 +70,18 @@ public class ComfyUISelfStartBackend : ComfyUIAPIAbstractBackend
     /// Used for dictionaries with list value type, if the key already exists the values are appended onto the existing list,
     /// otherwise a new key is added with a copy of values
     /// </summary>
-    public static void AddOrAppend<TKey, TValue>(Dictionary<TKey, List<TValue>> dictionary, TKey key, IEnumerable<TValue> values)
+    public static void AddOrAppend<TKey, TValue>(IDictionary<TKey, List<TValue>> dictionary, TKey key, IEnumerable<TValue> values)
     {
         if (dictionary.TryGetValue(key, out var dictValueList))
             dictValueList.AddRange(values);
         else
-            dictionary.Add(key, values.ToList());
+            dictionary.TryAdd(key, values.ToList());
     }
 
     /// <summary>
     /// Builds a ComfyUI extra paths yaml config from a dictionary, keys are model names and the values are lists of folder paths
     /// </summary>
-    public static string BuildComfyModelYamlFromDictionary(Dictionary<string, List<string>> dictionary)
+    public static string BuildComfyModelYamlFromDictionary(IDictionary<string, List<string>> dictionary)
     {
         var sb = new StringBuilder();
         sb.AppendLine("swarmui:");
